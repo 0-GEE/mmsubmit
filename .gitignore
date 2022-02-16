@@ -1,0 +1,10 @@
+/__pycache__
+/.vscode
+/pfp
+/.env
+/creds.json
+/name mappings.txt
+/python3.bat
+/run.bat
+/token.json
+/used_names.txt
