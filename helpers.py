@@ -1,14 +1,11 @@
-from google.auth.transport import Request
+from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 import os
 from random import randint
 
 def get_creds(scopes: list):
-    """
-    fetch google api client credentials.
+    """fetch google api client credentials.
 
     scopes must be a list of str containing the full scope
     urls requested by the client.
@@ -16,13 +13,16 @@ def get_creds(scopes: list):
 
     creds = None
 
+    # if there are tokens stored in directory
     if os.path.exists('token.json'):
         creds = Credentials.from_authorized_user_file('token.json', scopes)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
+            # there is a refresh token, so refresh for a new valid token
             creds.refresh(Request())
         else:
+            # begin user OAuth2 authentication using a local server strategy
             flow = InstalledAppFlow.from_client_secrets_file(
                 'creds.json', scopes)
             creds = flow.run_local_server(port=0)
@@ -35,8 +35,7 @@ def get_creds(scopes: list):
 
 
 def clean_dir(fname=None, fdir=None):
-    """
-    deletes the file specified by fname
+    """deletes the file specified by fname
     and, optionally, the directory specified by fdir.
     """
     if fname:
@@ -51,8 +50,7 @@ def clean_dir(fname=None, fdir=None):
 
 
 def generate_rand_diffname():
-    """
-    returns a random 2-word string of the form:
+    """returns a random 2-word string of the form:
     ``Adjective`` + ``Noun``
     """
     adjectives = [

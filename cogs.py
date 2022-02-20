@@ -1,30 +1,15 @@
-from http.client import HTTPException
-
-from matplotlib.pyplot import close
 from helpers import *
-from discord.channel import TextChannel
-from discord.colour import Color
-from discord.embeds import Embed
 from discord.ext import commands
 import discord
 from discord.ext.commands.bot import Bot
-from discord.ext.commands.context import Context
-from discord.guild import Guild
-from discord.member import Member
 from discord.message import Message
-from discord.permissions import PermissionOverwrite
-from discord.role import Role
 from loguru import logger
-import traceback
-from google.auth.transport import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build, Resource, MediaFileUpload
-from googleapiclient.errors import HttpError
+from googleapiclient.discovery import build, MediaFileUpload
 from typing import *
 from zipfile import BadZipFile, ZipFile
 import os
 from metaclass import *
+import json
 
 
 OK = ":white_check_mark:"
@@ -35,17 +20,18 @@ NG = ":x:"
 class Submissions(commands.Cog):
     def __init__(self, bot: Bot):
         self.bot = bot
-        self.parent_guild_id = 797228377442353182
+        self.parent_guild_id = 797228377442353182 # to be changed when deployed
         self.scopes = [
             'https://www.googleapis.com/auth/drive.file', 
             'https://www.googleapis.com/auth/drive.install']
-        self.partic_role_id = 797389869655523398
+        self.partic_role_id = 797389869655523398 # to be changed when deployed
         self.song_title = 'Epistrofi'
         self.song_artist = 'SEPHID'
         self.useful_tags = \
             "MasterMapper 2022 MM22 #2 Qualifiers QF Electronic Instrumental English Vocal Chop".split(' ')
         self.submission_id = 1
         self.folder_name = "MasterMapper Submissions"
+        self.submission_history = "sub_history.json"
 
 
     @commands.Cog.listener()
@@ -69,9 +55,9 @@ class Submissions(commands.Cog):
 
         # ensure user is a participant
         guild = await self.bot.fetch_guild(self.parent_guild_id)
-        partic_role: Role = guild.get_role(self.partic_role_id)
+        partic_role = guild.get_role(self.partic_role_id)
 
-        user: Member = await guild.fetch_member(msg.author.id)
+        user = await guild.fetch_member(msg.author.id)
 
 
         if partic_role not in user.roles:
@@ -150,7 +136,8 @@ class Submissions(commands.Cog):
             clean_dir(fdir=fdir)
             return
 
-        # anonymize the entry
+        # anonymize the entry by replacing the original value in the 'creator' field
+        #  of the beatmap metadata with string of the format: {Adjective} + {Noun}
         old_creator_name = str(mtdata.creator)
         mtdata.creator = generate_rand_diffname()
         namelist = 'used_names.txt'
@@ -169,7 +156,11 @@ class Submissions(commands.Cog):
             with open(namelist, 'w') as f:
                 f.write(mtdata.creator)
                 f.close()
-
+                
+        # form the string representing the name mapping and
+        #  store it in a text document to be read from 
+        #  when the mappings need to be retrieved for 
+        #  contest results
         indicator = old_creator_name + " --> " + mtdata.creator + '\n'
 
         if os.path.exists("name mappings.txt"):
@@ -188,7 +179,7 @@ class Submissions(commands.Cog):
 
         mtdata.write()
 
-        # rename the .osu file and map pkg as well for anonymization
+        # rename the .osu file and map pkg as well for total anonymization
         sub_name = 'submission_{0}'.format(self.submission_id)
 
         os.rename(map_path, fdir+'/{0}.osu'.format(sub_name))
@@ -206,21 +197,23 @@ class Submissions(commands.Cog):
         os.rename(sub_name+'.zip', oszname)
         clean_dir(fdir=sub_name)
 
-        # upload to Google Drive
+        # prepare to upload to Google Drive
+        #  by optaining authorization credentials
         creds = get_creds(self.scopes)
-        service: Resource = build('drive', 'v3', credentials=creds)
+        service = build('drive', 'v3', credentials=creds)
 
         folder_id = None
 
-        # check if folder exists first
+        # check if submissions folder exists in the drive already
         page_token = None
         while folder_id is None:
-            response: dict = service.files().list(q="mimeType='application/vnd.google-apps.folder'",
+            response = service.files().list(q="mimeType='application/vnd.google-apps.folder'",
                                                   spaces="drive",
                                                   fields="nextPageToken, files(id, name)",
                                                   pageToken=page_token).execute()
             for file in response.get('files', []):
                 if file.get('name') == self.folder_name:
+                    # we have found the folder!
                     folder_id = file.get('id')
                     break
             page_token = response.get('nextPageToken', None)
@@ -233,24 +226,59 @@ class Submissions(commands.Cog):
                 'name': self.folder_name,
                 'mimeType': 'application/vnd.google-apps.folder'
             }
-            fldr: dict = service.files().create(body=folder_metadata,
+            fldr = service.files().create(body=folder_metadata,
                                                 fields='id').execute()
             folder_id = fldr.get('id')
 
+
+        # now we check to see if the user has submitted during this round
+        #  before
+        prev_submission = None # this will be a file id if found
+        history = None
+        userid_str = str(msg.author.id)
+
+        # check if a record of submission history exists
+        if os.path.exists(self.submission_history):
+            with open(self.submission_history, 'r', encoding='utf-8') as f:
+                history = json.load(f)
+                f.close()
+
+            user_history = history.get(userid_str, [])
+            if len(user_history) != 0:
+                # a previous submission has been found
+                prev_submission = user_history[-1]
         
+        # delete the previous submission from the submissions folder
+        #  on Drive
+        if prev_submission:
+            service.files().delete(fileId=prev_submission).execute()
 
         file_metadata = {
             'name': oszname,
             'parents': [folder_id]
             }
 
+        # upload new submission to the submissions folder
         media = MediaFileUpload(oszname, resumable=True)
         file = service.files().create(body=file_metadata,
                                       media_body=media,
                                       fields='id').execute()
+        file_id = file.get('id')
 
         service.close()
 
+        # update or create the submission history JSON
+        if history:
+            user_history = history.get(userid_str, [])
+            user_history.append(file_id)
+            history[userid_str] = user_history
+        else:
+            history = { userid_str: [file_id] }
+        
+        with open(self.submission_history, 'w', encoding='utf-8') as f:
+            json.dump(history, f, indent=4)
+            f.close()
 
+        # submission was successful. Send confirmation msg
         await msg.channel.send(
             OK+" Your submission has been received! Submission id: {0}".format(self.submission_id))

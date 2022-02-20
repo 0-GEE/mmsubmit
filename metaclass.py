@@ -1,8 +1,7 @@
 SEP = ':'
 
 class BeatmapMetadata:
-    """
-    This class represents an osu! beatmap's metadata.
+    """This class represents an osu! beatmap's metadata.
     It does not represent any other component of the beatmap.
 
     It contains methods for fetching any metadata field, and 
@@ -42,12 +41,14 @@ class BeatmapMetadata:
                 return num
 
     def write(self):
-        """
-        write any new/modified metadata into the beatmap
+        """write any new/modified metadata into the beatmap
         (replaces original values)
         """
-        before = '\n'.join(self._beatmap_data[0:self._meta_line-1])
-        after = '\n'.join(self._beatmap_data[self._difficulty_line:-1])
+        
+        # generate strings of beatmap data before and 
+        #  after the metadata section
+        before = ''.join(self._beatmap_data[0:self._meta_line-1])
+        after = ''.join(self._beatmap_data[self._difficulty_line:])
         
         # form metadata string
         mtdata_str = \
@@ -64,10 +65,12 @@ class BeatmapMetadata:
             "\nBeatmapSetID:" + str(self.beatmapset_id) + \
             "\n\n"
 
+        # write in the 'before metadata' section
         with open(self._path, 'w') as f:
             f.write(before)
             f.close()
 
+        # write in the metadata and 'after metadata' sections
         with open(self._path, 'a') as f:
             f.write(mtdata_str)
             f.write(after)
