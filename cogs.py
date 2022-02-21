@@ -1,5 +1,6 @@
 from helpers import *
 from discord.ext import commands
+from discord.ext.commands import Context
 import discord
 from discord.ext.commands.bot import Bot
 from discord.message import Message
@@ -10,8 +11,9 @@ from zipfile import BadZipFile, ZipFile
 import os
 from metaclass import *
 import json
+from datetime import datetime, timedelta
 
-
+# some emote constants to indicate submission success or failure
 OK = ":white_check_mark:"
 NG = ":x:"
 
@@ -25,11 +27,26 @@ class Submissions(commands.Cog):
             'https://www.googleapis.com/auth/drive.file', 
             'https://www.googleapis.com/auth/drive.install']
         self.partic_role_id = 797389869655523398 # to be changed when deployed
-        self.song_title = 'Epistrofi'
-        self.song_artist = 'SEPHID'
-        self.useful_tags = \
-            "MasterMapper 2022 MM22 #2 Qualifiers QF Electronic Instrumental English Vocal Chop".split(' ')
-        self.submission_id = 1
+        self.org_role_id = 797389869655523398 # to be changed when deployed
+        self.configured = False
+
+        # load configurations from file or set all configs to None
+        #  if configs do not exist (configs must be set via command
+        #   before using the submission system in this case)
+        configs = load_configs()
+
+        self.song_title = configs.get('song_title', None)
+        self.song_artist = configs.get('song_artist', None)
+        self.useful_tags = configs.get('useful_tags', None)
+        self.submission_id = configs.get('submission_id', 0)
+
+        try:
+            self.deadline = datetime.fromisoformat(configs.get('deadline', None))
+        except:
+            self.deadline = None
+
+        self.check_config()
+
         self.folder_name = "MasterMapper Submissions"
         self.submission_history = "sub_history.json"
 
@@ -49,7 +66,8 @@ class Submissions(commands.Cog):
             not isinstance(msg.channel, discord.DMChannel):
             return
 
-        if len(msg.attachments) != 1:
+        if len(msg.attachments) != 1 or \
+            not self.configured:
             return
 
 
@@ -62,6 +80,13 @@ class Submissions(commands.Cog):
 
         if partic_role not in user.roles:
             await msg.channel.send(NG+" You are not a registered participant.")
+            return
+
+        # check to see if the deadline has already passed
+        curr_time = datetime.utcnow()
+
+        if self.deadline < curr_time:
+            await msg.channel.send(NG+"The deadline has passed! You cannot submit past the deadline.")
             return
 
         # do a simple check on the attachment to see if it is osz
@@ -184,7 +209,6 @@ class Submissions(commands.Cog):
 
         os.rename(map_path, fdir+'/{0}.osu'.format(sub_name))
         os.rename(fdir, sub_name)
-        self.submission_id += 1
 
         # validation finished. Now re-zip
         with ZipFile(sub_name+'.zip', 'w') as zf:
@@ -282,3 +306,286 @@ class Submissions(commands.Cog):
         # submission was successful. Send confirmation msg
         await msg.channel.send(
             OK+" Your submission has been received! Submission id: {0}".format(self.submission_id))
+
+        self.submission_id += 1
+
+        # write new submission id to config file
+        configs = load_configs()
+        configs['submission_id'] = self.submission_id
+        save_configs(configs)
+
+
+    def check_config(self):
+        """utility method for checking to see if any configs
+        are not set (ie. have a value of ``None``)
+        and setting the ``configured`` flag accordingly
+        """
+
+        cfg_list = [
+            self.song_title,
+            self.song_artist,
+            self.useful_tags
+        ]
+
+        if None in cfg_list:
+            self.configured = False
+        self.configured = True 
+
+
+    @commands.command(name='set_title')
+    @logger.catch
+    async def set_title(self, ctx: Context, *args):
+        """changes the song title that the submission system checks for.
+        It changes the corresponding class attribute and writes to config file.
+        """
+
+        if not command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            return
+
+        if len(args) == 0:
+            await ctx.send("Please specify the new song title and try again!")
+            return
+
+        
+        new_title = ' '.join(args) # join with spaces since discord delimits args with spaces
+        self.song_title = new_title
+
+        # save the new title into config file
+        configs = load_configs()
+
+        configs['song_title'] = new_title
+        save_configs(configs)
+
+        self.check_config()
+
+        await ctx.send("Song title changed to ``{0}``!".format(new_title))
+
+
+    @commands.command(name='title')
+    @logger.catch
+    async def title(self, ctx: Context):
+        """Outputs the song title currently set for the submission
+        system to check for
+        """
+        if command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            if self.song_title:
+                await ctx.send(self.song_title)
+            else:
+                await ctx.send("No song title set")
+
+        
+        
+
+    @commands.command(name='set_artist')
+    @logger.catch
+    async def set_artist(self, ctx: Context, *args):
+        """changes the song artist that the submission system checks for.
+        It changes the corresponding class attribute and writes to config file.
+        """
+
+        if not command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            return
+
+        if len(args) == 0:
+            await ctx.send("Please specify the new song artist and try again!")
+            return
+
+        new_artist = ' '.join(args) # join with spaces since discord delimits args with spaces
+        self.song_artist = new_artist
+
+        configs = load_configs()
+        
+        # save new artist into config file
+        configs['song_artist'] = new_artist
+        save_configs(configs)
+
+        self.check_config()
+
+        await ctx.send("Song artist changed to ``{0}``!".format(new_artist))
+
+
+    @commands.command(name='artist')
+    @logger.catch
+    async def artist(self, ctx: Context):
+        """Outputs the song artist currently set for the submission system to
+        look for
+        """
+
+        if command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            if self.song_artist:
+                await ctx.send(self.song_artist)
+            else:
+                await ctx.send("No song artist set")
+
+
+
+    @commands.command(name='add_tags')
+    @logger.catch
+    async def add_tags(self, ctx: Context, *args):
+        """adds tags to the internal useful tags list
+        (modifies class attribute and writes to config file)
+        """
+
+        if not command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            return
+
+        if self.useful_tags: # the useful tags list does exist
+            for tag in args:
+                if tag not in self.useful_tags: 
+                    self.useful_tags.append(tag) # add all arg tags into the list
+        else:
+            # useful tags list does not exist yet. Simply set it to 
+            #  the list created from args
+            self.useful_tags = list(args)
+
+        # write new tags to config file
+        configs = load_configs()
+        configs['useful_tags'] = self.useful_tags
+        save_configs(configs)
+
+        self.check_config()
+
+        await ctx.send(
+            "Successfully added the following tags to internal tags list:\n ``{0}``".format(
+                ', '.join(args)
+            ))
+
+
+    @commands.command(name='remove_tags')
+    @logger.catch
+    async def remove_tags(self, ctx: Context, *args):
+        """removes tags from the internal useful tags list
+        (modifies class attribute and writes to config file)
+        """
+
+        if not command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            return
+
+        if len(args) == 0:
+            await ctx.send("Please specify tags to remove and try again!")
+            return
+
+        # check if there are any tags at all
+        if self.useful_tags is None:
+            await ctx.send("There is no internal tags list yet!")
+            return
+
+        if len(self.useful_tags) == 0:
+            await ctx.send("The internal tags list is already empty!")
+            return
+
+        removed_tags = [] # store all removed tags for response msg
+        for remove_tag in args:
+            if remove_tag in self.useful_tags:
+                self.useful_tags.remove(remove_tag)
+                removed_tags.append(remove_tag)
+
+        # write new tags to config file
+        configs = load_configs()
+        configs['useful_tags'] = self.useful_tags
+        save_configs(configs)
+
+        self.check_config()
+
+        await ctx.send(
+            "Successfully removed the following tags from internal tags list:\n ``{0}``".format(
+                ', '.join(removed_tags)
+            ))
+
+
+    @commands.command(name='clear_tags')
+    @logger.catch
+    async def clear_tags(self, ctx: Context):
+        """deletes all tags in the internal tags list"""
+
+        if not command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            return
+
+        if self.useful_tags is None:
+            await ctx.send("No tags list to remove from")
+            return
+
+        self.useful_tags = []
+
+        configs = load_configs()
+        configs['useful_tags'] = self.useful_tags
+        save_configs(configs)
+
+        self.check_config()
+
+        await ctx.send("Successfully removed all tags from internal tags list")
+
+
+    @commands.command(name='tags')
+    @logger.catch
+    async def tags(self, ctx: Context):
+        """Outputs all tags in the internal tags list
+        """
+
+        if not command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            return
+
+        
+        if self.useful_tags is None:
+            await ctx.send("There is no internal tags list at the moment")
+            return
+
+        if len(self.useful_tags) == 0:
+            await ctx.send("The internal tags list is empty")
+            return
+
+        await ctx.send(
+            "``{0}``".format(', '.join(self.useful_tags))
+        )
+
+    
+    @commands.command(name='set_deadline')
+    @logger.catch
+    async def set_deadline(self, ctx: Context, *args):
+        """sets the submission deadline
+        (modifies class attribute and writes to config file)"""
+
+        if not command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            return
+
+        # see if the user has passed an appropriate iso format string
+        try:
+            new_deadline = datetime.fromisoformat(args[0])
+        except Exception as e:
+            await ctx.send(
+                "Your deadline could not be parsed. Please check your formatting and try again ({0})".format(
+                    str(e)
+                ))
+            return
+
+        # datetime object created successfully. Now add it to attributes
+        self.deadline = new_deadline
+        new_deadline_str = new_deadline.isoformat()
+
+        # save deadline (in string form) to config file
+        configs = load_configs()
+
+        # reformat using isoformat() to ensure no possibility of errors
+        #  when retrieving deadline from config file in the future
+        configs['deadline'] = new_deadline_str
+        save_configs(configs)
+
+        self.check_config()
+
+        await ctx.send("Successfully updated the submission deadline to ``{0}``".format(
+            new_deadline_str
+        ))
+
+
+
+    @commands.command(name='deadline')
+    @logger.catch
+    async def get_deadline(self, ctx: Context):
+        """Outputs the deadline currently set internally
+        """
+
+        if command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            if self.deadline:
+                await ctx.send(self.deadline.isoformat())
+            else:
+                await ctx.send("No deadline set")

@@ -3,6 +3,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 import os
 from random import randint
+from json import load, dump
+from discord.ext.commands import Context
 
 def get_creds(scopes: list):
     """fetch google api client credentials.
@@ -47,6 +49,52 @@ def clean_dir(fname=None, fdir=None):
             for file in os.listdir(fdir):
                 os.remove(fdir+'/'+file)
             os.rmdir(fdir)
+
+
+def load_configs():
+    """load configurations"""
+
+    try:
+        with open("config.json", 'r', encoding='utf-8') as f:
+            return load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def save_configs(configs: dict):
+    """save configs by writing to
+    disk
+    """
+    with open("config.json", 'w', encoding='utf-8') as f:
+        dump(configs, f, indent=4)
+
+def command_authorized(ctx: Context, parent_guild_id: int, auth_role_id: int):
+    """This is a check to see if the user invoking a bot command
+    is authorized to do so (are they a contest organizer?)
+    
+    Returns ``True`` for 'yes' and ``False`` for 'no'."""
+
+    # get the guild of the invocation context, if it exists
+    guild = ctx.guild
+    if guild is None:
+        # invokation was attempted through DMs (invalid)
+        return False
+    if guild.id != parent_guild_id:
+        # invokation was attempted from an incorrect guild (invalid)
+        return False
+
+    user_roles = ctx.author.roles
+
+    # check to see if the user invoking the command has the appropriate
+    #  role
+    for role in user_roles:
+        if role.id == auth_role_id:
+            return True
+    return False
+    
+
+
+
 
 
 def generate_rand_diffname():
