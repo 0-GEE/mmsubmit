@@ -329,7 +329,8 @@ class Submissions(commands.Cog):
 
         if None in cfg_list:
             self.configured = False
-        self.configured = True 
+        else:
+            self.configured = True
 
 
     @commands.command(name='set_title')
