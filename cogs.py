@@ -277,6 +277,30 @@ class Submissions(commands.Cog):
         if prev_submission:
             service.files().delete(fileId=prev_submission).execute()
 
+            # remove previous submission name mappings for the current user
+            #  and free up the user's old aliases from the used names list
+            mappings = open("name mappings.txt", 'r').readlines()
+            old_aliases = []
+
+            for i, mapping in enumerate(mappings):
+                if old_creator_name in mapping and mtdata.creator not in mapping:
+                    old_aliases.append(mappings.pop(i).split(' --> ')[1])
+
+            with open("name mappings.txt", 'w') as f:
+                f.write(''.join(mappings))
+                f.close()
+
+            used_names = open(namelist, 'r').readlines()
+            for old_alias in old_aliases:
+                try:
+                    used_names.remove(old_alias)
+                except ValueError:
+                    continue
+            
+            with open(namelist, 'w') as f:
+                f.write(''.join(used_names))
+                f.close()
+
         file_metadata = {
             'name': oszname,
             'parents': [folder_id]
