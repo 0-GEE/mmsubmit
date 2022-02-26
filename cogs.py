@@ -18,15 +18,18 @@ NG = ":x:"
 
 
 class Submissions(commands.Cog):
-    def __init__(self, bot: Bot, sub_fldr_id: str):
+    def __init__(self, bot: Bot, sub_fldr_id: str, 
+                 guild_id: int, mem_role_id: int,
+                 org_role_id: int):
+                 
         self.bot = bot
         self.folder_id = sub_fldr_id
-        self.parent_guild_id = 797228377442353182 # to be changed when deployed
+        self.parent_guild_id = guild_id
         self.scopes = [
             'https://www.googleapis.com/auth/drive.file', 
             'https://www.googleapis.com/auth/drive.install']
-        self.partic_role_id = 797389869655523398 # to be changed when deployed
-        self.org_role_id = 797389869655523398 # to be changed when deployed
+        self.partic_role_id = mem_role_id
+        self.org_role_id = org_role_id
         self.configured = False
 
         # load configurations from file or set all configs to None
