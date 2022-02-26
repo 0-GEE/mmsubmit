@@ -1,16 +1,32 @@
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account as sva
 from google_auth_oauthlib.flow import InstalledAppFlow
 import os
 from random import randint
 from json import load, dump
 from discord.ext.commands import Context
 
-def get_creds(scopes: list):
+def get_creds_server(scopes: list):
+    """fetch google api client credentials using
+    service account keys.
+    
+    scopes must be a list of str containing the full scope
+    urls requested by the client.
+    """
+
+    return sva.Credentials.from_service_account_file("service_acc_keys.json", scopes=scopes)
+
+
+
+def get_creds_desktop(scopes: list):
     """fetch google api client credentials.
 
     scopes must be a list of str containing the full scope
     urls requested by the client.
+
+    This function is currently unused but I'm gonna keep it around
+    in case it becomes useful in near-future development
     """
 
     creds = None
@@ -134,7 +150,7 @@ def generate_rand_diffname():
 
     nouns = [
         'airplane',
-        'bycicle',
+        'bicycle',
         'jaguar',
         'computer',
         'biscuit',

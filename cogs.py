@@ -4,14 +4,12 @@ from discord.ext.commands import Context
 import discord
 from discord.ext.commands.bot import Bot
 from discord.message import Message
-from loguru import logger
 from googleapiclient.discovery import build, MediaFileUpload
-from typing import *
 from zipfile import BadZipFile, ZipFile
 import os
 from metaclass import *
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # some emote constants to indicate submission success or failure
 OK = ":white_check_mark:"
@@ -20,8 +18,9 @@ NG = ":x:"
 
 
 class Submissions(commands.Cog):
-    def __init__(self, bot: Bot):
+    def __init__(self, bot: Bot, sub_fldr_id: str):
         self.bot = bot
+        self.folder_id = sub_fldr_id
         self.parent_guild_id = 797228377442353182 # to be changed when deployed
         self.scopes = [
             'https://www.googleapis.com/auth/drive.file', 
@@ -52,13 +51,11 @@ class Submissions(commands.Cog):
 
 
     @commands.Cog.listener()
-    @logger.catch
     async def on_ready(self):
         print("Online!")
 
 
     @commands.Cog.listener()
-    @logger.catch
     async def on_message(self, msg: Message):
         """this method handles user submissions."""
 
@@ -221,39 +218,6 @@ class Submissions(commands.Cog):
         os.rename(sub_name+'.zip', oszname)
         clean_dir(fdir=sub_name)
 
-        # prepare to upload to Google Drive
-        #  by optaining authorization credentials
-        creds = get_creds(self.scopes)
-        service = build('drive', 'v3', credentials=creds)
-
-        folder_id = None
-
-        # check if submissions folder exists in the drive already
-        page_token = None
-        while folder_id is None:
-            response = service.files().list(q="mimeType='application/vnd.google-apps.folder'",
-                                                  spaces="drive",
-                                                  fields="nextPageToken, files(id, name)",
-                                                  pageToken=page_token).execute()
-            for file in response.get('files', []):
-                if file.get('name') == self.folder_name:
-                    # we have found the folder!
-                    folder_id = file.get('id')
-                    break
-            page_token = response.get('nextPageToken', None)
-            if page_token is None:
-                break
-
-        if folder_id is None:
-            # folder not found, so create it
-            folder_metadata = {
-                'name': self.folder_name,
-                'mimeType': 'application/vnd.google-apps.folder'
-            }
-            fldr = service.files().create(body=folder_metadata,
-                                                fields='id').execute()
-            folder_id = fldr.get('id')
-
 
         # now we check to see if the user has submitted during this round
         #  before
@@ -271,6 +235,11 @@ class Submissions(commands.Cog):
             if len(user_history) != 0:
                 # a previous submission has been found
                 prev_submission = user_history[-1]
+
+        # prepare to upload to Google Drive
+        #  by optaining authorization credentials
+        creds = get_creds_server(self.scopes)
+        service = build('drive', 'v3', credentials=creds)
         
         # delete the previous submission from the submissions folder
         #  on Drive
@@ -303,7 +272,7 @@ class Submissions(commands.Cog):
 
         file_metadata = {
             'name': oszname,
-            'parents': [folder_id]
+            'parents': [self.folder_id]
             }
 
         # upload new submission to the submissions folder
@@ -358,7 +327,6 @@ class Submissions(commands.Cog):
 
 
     @commands.command(name='set_title')
-    @logger.catch
     async def set_title(self, ctx: Context, *args):
         """changes the song title that the submission system checks for.
         It changes the corresponding class attribute and writes to config file.
@@ -387,7 +355,6 @@ class Submissions(commands.Cog):
 
 
     @commands.command(name='title')
-    @logger.catch
     async def title(self, ctx: Context):
         """Outputs the song title currently set for the submission
         system to check for
@@ -402,7 +369,6 @@ class Submissions(commands.Cog):
         
 
     @commands.command(name='set_artist')
-    @logger.catch
     async def set_artist(self, ctx: Context, *args):
         """changes the song artist that the submission system checks for.
         It changes the corresponding class attribute and writes to config file.
@@ -430,7 +396,6 @@ class Submissions(commands.Cog):
 
 
     @commands.command(name='artist')
-    @logger.catch
     async def artist(self, ctx: Context):
         """Outputs the song artist currently set for the submission system to
         look for
@@ -445,7 +410,6 @@ class Submissions(commands.Cog):
 
 
     @commands.command(name='add_tags')
-    @logger.catch
     async def add_tags(self, ctx: Context, *args):
         """adds tags to the internal useful tags list
         (modifies class attribute and writes to config file)
@@ -477,7 +441,6 @@ class Submissions(commands.Cog):
 
 
     @commands.command(name='remove_tags')
-    @logger.catch
     async def remove_tags(self, ctx: Context, *args):
         """removes tags from the internal useful tags list
         (modifies class attribute and writes to config file)
@@ -519,7 +482,6 @@ class Submissions(commands.Cog):
 
 
     @commands.command(name='clear_tags')
-    @logger.catch
     async def clear_tags(self, ctx: Context):
         """deletes all tags in the internal tags list"""
 
@@ -542,7 +504,6 @@ class Submissions(commands.Cog):
 
 
     @commands.command(name='tags')
-    @logger.catch
     async def tags(self, ctx: Context):
         """Outputs all tags in the internal tags list
         """
@@ -565,7 +526,6 @@ class Submissions(commands.Cog):
 
     
     @commands.command(name='set_deadline')
-    @logger.catch
     async def set_deadline(self, ctx: Context, *args):
         """sets the submission deadline
         (modifies class attribute and writes to config file)"""
@@ -604,7 +564,6 @@ class Submissions(commands.Cog):
 
 
     @commands.command(name='deadline')
-    @logger.catch
     async def get_deadline(self, ctx: Context):
         """Outputs the deadline currently set internally
         """
