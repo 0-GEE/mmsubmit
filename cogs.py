@@ -149,13 +149,14 @@ class Submissions(commands.Cog):
             return
 
         # check basic metadata    
-        if mtdata.title != self.song_title:
-            await msg.channel.send(
-                NG+" Song title mismatch. Are you submitting the correct beatmap?")
-            clean_dir(fdir=fdir)
-            return
+        if self.song_title:
+            if mtdata.title not in self.song_title:
+                await msg.channel.send(
+                    NG+" Song title mismatch. Are you submitting the correct beatmap?")
+                clean_dir(fdir=fdir)
+                return
         
-        if mtdata.artist != self.song_artist:
+        if mtdata.artist not in self.song_artist:
             await msg.channel.send(
                 NG+" Song artist mismatch. Are you submitting the correct beatmap?")
             clean_dir(fdir=fdir)
@@ -198,8 +199,10 @@ class Submissions(commands.Cog):
                 f.close()
 
         # add some potentially useful tags (if they don't exist already)
+        normalized_tags = [tag.casefold() for tag in mtdata.tags]
+        
         for tag in self.useful_tags:
-            if tag not in mtdata.tags:
+            if tag.casefold() not in normalized_tags:
                 mtdata.tags.append(tag.casefold())
 
         mtdata.write()
@@ -318,9 +321,9 @@ class Submissions(commands.Cog):
         """
 
         cfg_list = [
-            self.song_title,
             self.song_artist,
-            self.useful_tags
+            self.useful_tags,
+            self.deadline
         ]
 
         if None in cfg_list:
@@ -331,7 +334,7 @@ class Submissions(commands.Cog):
 
     @commands.command(name='set_title')
     async def set_title(self, ctx: Context, *args):
-        """changes the song title that the submission system checks for.
+        """changes the song titles that the submission system checks for.
         It changes the corresponding class attribute and writes to config file.
         """
 
@@ -339,22 +342,42 @@ class Submissions(commands.Cog):
             return
 
         if len(args) == 0:
-            await ctx.send("Please specify the new song title and try again!")
+            await ctx.send("Please specify the new song titles and try again!")
             return
 
         
-        new_title = ' '.join(args) # join with spaces since discord delimits args with spaces
-        self.song_title = new_title
+        new_titles = list(args)
+        self.song_title = new_titles
 
         # save the new title into config file
         configs = load_configs()
 
-        configs['song_title'] = new_title
+        configs['song_title'] = new_titles
         save_configs(configs)
 
         self.check_config()
 
-        await ctx.send("Song title changed to ``{0}``!".format(new_title))
+        await ctx.send("Song titles changed to ``{0}``!".format(', '.join(new_titles)))
+
+
+    @commands.command(name='clear_title')
+    async def clear_title(self, ctx: Context):
+        """clears any title check (basically allows the system to accept
+        any song title)
+        """
+
+        if not command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            return
+
+        self.song_title = None
+        self.check_config()
+
+        configs = load_configs()
+        configs['song_title'] = None
+        save_configs(configs)
+
+        await ctx.send("Successfully removed song title restriction!")
+
 
 
     @commands.command(name='title')
@@ -364,9 +387,9 @@ class Submissions(commands.Cog):
         """
         if command_authorized(ctx, self.parent_guild_id, self.org_role_id):
             if self.song_title:
-                await ctx.send(self.song_title)
+                await ctx.send(', '.join(self.song_title))
             else:
-                await ctx.send("No song title set")
+                await ctx.send("No song title restriction in place.")
 
         
         
@@ -381,34 +404,35 @@ class Submissions(commands.Cog):
             return
 
         if len(args) == 0:
-            await ctx.send("Please specify the new song artist and try again!")
+            await ctx.send("Please specify the new song artists and try again!")
             return
 
-        new_artist = ' '.join(args) # join with spaces since discord delimits args with spaces
-        self.song_artist = new_artist
+         # take all artists given (those with spaces in name can be delimited with double quote)
+        new_artists = list(args)
+        self.song_artist = new_artists
 
         configs = load_configs()
         
         # save new artist into config file
-        configs['song_artist'] = new_artist
+        configs['song_artist'] = new_artists
         save_configs(configs)
 
         self.check_config()
 
-        await ctx.send("Song artist changed to ``{0}``!".format(new_artist))
+        await ctx.send("Song artists changed to ``{0}``!".format(', '.join(new_artists)))
 
 
     @commands.command(name='artist')
     async def artist(self, ctx: Context):
-        """Outputs the song artist currently set for the submission system to
+        """Outputs the song artists currently set for the submission system to
         look for
         """
 
         if command_authorized(ctx, self.parent_guild_id, self.org_role_id):
             if self.song_artist:
-                await ctx.send(self.song_artist)
+                await ctx.send(', '.join(self.song_artist))
             else:
-                await ctx.send("No song artist set")
+                await ctx.send("No song artists set")
 
 
 
@@ -576,3 +600,38 @@ class Submissions(commands.Cog):
                 await ctx.send(self.deadline.isoformat())
             else:
                 await ctx.send("No deadline set")
+
+
+    @commands.command(name='configured')
+    async def is_configured(self, ctx: Context):
+        """outputs the configured status"""
+
+        if command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            await ctx.send(str(self.configured))
+
+
+    @commands.command(name='names')
+    async def fetch_name_mappings(self, ctx: Context):
+        """sends the name mappings text document"""
+
+        if not command_authorized(ctx, self.parent_guild_id, self.org_role_id):
+            return
+
+        # check to see if the name mappings file actually exists
+        if not os.path.exists("name mappings.txt"):
+            await ctx.send(
+                "The name mappings file does not exist yet! Maybe no one has submitted anything yet?")
+            return
+
+        # create discord file object in preparation for sending
+        name_file = discord.File("name mappings.txt")
+        
+        # prepare DM with the user invoking the command
+        dm = ctx.author.dm_channel
+
+        if dm is None:
+            dm = await ctx.author.create_dm()
+
+        # send the dm with the name mappings file attached
+        await dm.send(file=name_file)
+        
